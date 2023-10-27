@@ -49,7 +49,7 @@ here we have two subparams to fill: sha256Hash and variables.
 
 The first one, 'the Hash', we get from the webpage of hiper libertad, and store it in the config file in case we need to change it.
 
-![where we take the hash from](https://drive.google.com/file/d/1N4DMt56Ehm6VJPDnWWmx_h55BrKYZm3m/view?usp=sharing)
+![where we take the hash from](https://github.com/CarlosABrizuela/auto_scraping_libertad_graphql/blob/main/files/hlibertad_graphql_exp1.jpg?raw=true)
 
 For the second one, we create a dictionary, where we need to supply the following parameters: from, to, query, selectedFacets (these last two are why we gave that format to the categories json)
 ```python
