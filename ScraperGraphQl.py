@@ -1,10 +1,11 @@
-import requests
+import requests, base64, json
 import time
 from requests.exceptions import ProxyError
 # import concurrent.futures
 from datetime import datetime
 import csv
 import pandas as pd
+from utility_functions import CONSOLE
 
 class ScraperHLibertad:
     def __init__(self, config):
@@ -21,7 +22,7 @@ class ScraperHLibertad:
         if self.config['proxy']:
             self.session.proxies = config['proxy_ip_port']
 
-    def fetch(self, url):
+    def fetch(self, url, params):
         """
         Realiza una solicitud HTTP a la URL especificada y devuelve la respuesta en formato json.
         """
@@ -31,52 +32,108 @@ class ScraperHLibertad:
 
         while attempts < max_attempts:
             try:
-                response = self.session.get(url)
+                response = self.session.get(url, params=params)
                 if response.ok:
                     return response.json()
                 else:
-                    print(f"Request not ok. Status code: {response.status_code}.")
+                    CONSOLE.info(f"Request not ok. Status code: {response.status_code}.")
 
             except ProxyError as e:
-                print('Proxy error:', e)
+                CONSOLE.error('Proxy error:', e)
                 return None
             except requests.RequestException as e:
-                print(f"Request error: {e}.")
+                CONSOLE.error(f"Request error: {e}.")
 
             attempts += 1
-            print(f"Retrying. >{max_attempts-attempts} attempts lefts'")
+            CONSOLE.info(f"Retrying. >{max_attempts-attempts} attempts lefts'")
             time.sleep(delay_attempts)
 
-        print(f"The request could not be made: {url}. No more attempts")
+        CONSOLE.info(f"The request could not be made: {url}. No more attempts")
         return None
     
     def run(self):
         """ main method. 
         """
         all_categories = self.get_categories()
-        if all_categories:
-            print(all_categories)
+        if not all_categories: return
 
+        self.process_department(all_categories[0])
         # with concurrent.futures.ThreadPoolExecutor(max_workers=self.config['thread_number']) as executor:
         #     executor.map(self.process_department, all_categories)
 
         self.close()
     
-    def process_department(self):
+    def process_department(self, department):
         """Obtain the products for each category or department (level 1 category)
         """
-        pass
+        for category in department['sub_categorias']:
+            self.process_subcategory(category)
+        
+        self.crear_csv(department['nombre'])
 
-    def process_subcategory(self, sub_category):
+    def process_subcategory(self, category):
         """get all products for every category in the current deparment
         sub={
         }
         """
-        pass
+        _from = 1
+        _to = self.config['pagination']
+        while True:
+            variables= {
+                "hideUnavailableItems":False,
+                "skusFilter":"ALL",
+                "simulationBehavior":"skip",
+                "installmentCriteria":"MAX_WITHOUT_INTEREST",
+                "productOriginVtex":True,
+                "map":"c,c",
+                "query":category['query'],#
+                "orderBy":"OrderByScoreDESC",
+                "from":_from,#
+                "to":_to,#
+                "selectedFacets":
+                    [{"key":"c","value":category['sup']},{"key":"c","value":category['sub']}], #
+                    "facetsBehavior":"Static",
+                    "categoryTreeBehavior":"default",
+                    "withFacets":False,
+                    "variant":""
+                }
+            variables_64 = base64.b64encode(json.dumps(variables).encode('utf-8')).decode()
+            querystring = {
+                "workspace":"master",
+                "maxAge":"short",
+                "appsEtag":"remove",
+                "domain":"store",
+                "locale":"es-AR",
+                "operationName":"productSearchV3",
+                "variables":"{}",
+                "extensions":"{\"persistedQuery\":{\"version\":1,\"sha256Hash\":\""+self.config['sha256']+"\",\"sender\":\"vtex.store-resources@0.x\",\"provider\":\"vtex.search-graphql@0.x\"},\"variables\":\""+variables_64+"\"}"
+                }
+
+            products_queried= self.fetch(self.search_url, querystring)
+            products= products_queried['data']['productSearch']['products']
+            if not products: break
+            for product in products:
+                self.process_product(product)
+
+            _from+= _to
+            _to+= _to
 
     def process_product(self, product):
         """ extract the product information """
-        pass
+        try:
+            dict_prod= {
+            'nombre': product['productName'],
+            'precio_publicado': product['priceRange']['sellingPrice']['highPrice'],
+            'precio_regular': product['priceRange']['listPrice']['highPrice'], #precio tachado
+            'categoria': product['categories'][0],
+            'SKU': product['items'][0]['itemId'],
+            'url_producto': product['link'],
+            'stock': product['items'][0]['sellers'][0]['commertialOffer']['AvailableQuantity'],
+            'descripcion': str(product['description']).replace('\n', ' ').replace('\r', '') # quitamos los espacios
+            }
+            self.data.append(dict_prod)
+        except Exception as e:
+            CONSOLE.info(f'(Process product): {e}')
 
     def get_categories(self):
         """Get the list of categories and format them for processing
@@ -91,7 +148,7 @@ class ScraperHLibertad:
                 }, ...
         }
         """
-        categories_json = self.fetch(self.config['categories_url'])
+        categories_json = self.fetch(self.config['categories_url'], {})
         if categories_json:
             return self.process_list_categories(categories_json)
 
@@ -129,7 +186,7 @@ class ScraperHLibertad:
         df = pd.DataFrame(self.data)
         ouput= f'{date}__{category_name}.csv'
         df.to_csv(f'{self.config['output_dir']}/{ouput}',  quoting=csv.QUOTE_MINIMAL)
-        print(f"* A new output file was generated: {ouput}")
+        CONSOLE.info(f"* A new output file was generated: {ouput}")
 
     def close(self):
         """

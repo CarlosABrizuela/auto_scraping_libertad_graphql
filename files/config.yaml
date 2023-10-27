@@ -1,4 +1,4 @@
-search_url: 
+search_url: https://www.hiperlibertad.com.ar/_v/segment/graphql/v1
 categories_url: https://www.hiperlibertad.com.ar/api/catalog_system/pub/category/tree/3
 proxy: True
 proxy_ip_port: 37.19.220.180:8443
@@ -6,4 +6,5 @@ thread_number: 30
 max_attempts: 2
 delay_attempts: 3
 pagination: 10
-output_dir: C:\Users\LNKIZ\Desktop\testScrapingHLibertad\Scraper_Hlibertad_requests\salida
+output_dir: C:\Users\LNKIZ\Desktop\testScrapingHLibertad\auto_scraping_libertad_graphql\salida
+sha256: 40b843ca1f7934d20d05d334916220a0c2cae3833d9f17bcb79cdd2185adceac
