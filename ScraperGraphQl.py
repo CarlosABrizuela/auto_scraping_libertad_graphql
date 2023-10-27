@@ -1,9 +1,6 @@
-import requests, base64, json
-import time
+import requests, base64, json, time, csv, concurrent.futures
 from requests.exceptions import ProxyError
-# import concurrent.futures
 from datetime import datetime
-import csv
 import pandas as pd
 from utility_functions import CONSOLE
 
@@ -57,9 +54,8 @@ class ScraperHLibertad:
         all_categories = self.get_categories()
         if not all_categories: return
 
-        self.process_department(all_categories[0])
-        # with concurrent.futures.ThreadPoolExecutor(max_workers=self.config['thread_number']) as executor:
-        #     executor.map(self.process_department, all_categories)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.config['thread_number']) as executor:
+            executor.map(self.process_department, all_categories)
 
         self.close()
     
@@ -74,42 +70,24 @@ class ScraperHLibertad:
     def process_subcategory(self, category):
         """get all products for every category in the current deparment
         sub={
+            "nombre": "department",
+            "sub_categorias": [
+                {
+                    "sup": "department",
+                    "sub": "category",
+                    "query": "department/category"
+                }
         }
         """
         _from = 1
         _to = self.config['pagination']
         while True:
-            variables= {
-                "hideUnavailableItems":False,
-                "skusFilter":"ALL",
-                "simulationBehavior":"skip",
-                "installmentCriteria":"MAX_WITHOUT_INTEREST",
-                "productOriginVtex":True,
-                "map":"c,c",
-                "query":category['query'],#
-                "orderBy":"OrderByScoreDESC",
-                "from":_from,#
-                "to":_to,#
-                "selectedFacets":
-                    [{"key":"c","value":category['sup']},{"key":"c","value":category['sub']}], #
-                    "facetsBehavior":"Static",
-                    "categoryTreeBehavior":"default",
-                    "withFacets":False,
-                    "variant":""
-                }
-            variables_64 = base64.b64encode(json.dumps(variables).encode('utf-8')).decode()
-            querystring = {
-                "workspace":"master",
-                "maxAge":"short",
-                "appsEtag":"remove",
-                "domain":"store",
-                "locale":"es-AR",
-                "operationName":"productSearchV3",
-                "variables":"{}",
-                "extensions":"{\"persistedQuery\":{\"version\":1,\"sha256Hash\":\""+self.config['sha256']+"\",\"sender\":\"vtex.store-resources@0.x\",\"provider\":\"vtex.search-graphql@0.x\"},\"variables\":\""+variables_64+"\"}"
-                }
-
+            querystring = self.get_query_string(_from, _to, category)
             products_queried= self.fetch(self.search_url, querystring)
+            if 'errors' in products_queried: 
+                CONSOLE.error("Incorrect hash or another parameter")
+                return
+            
             products= products_queried['data']['productSearch']['products']
             if not products: break
             for product in products:
@@ -117,6 +95,38 @@ class ScraperHLibertad:
 
             _from+= _to
             _to+= _to
+    
+    def get_query_string(self, _from, _to, category):
+        variables= {
+            "hideUnavailableItems":False,
+            "skusFilter":"ALL",
+            "simulationBehavior":"skip",
+            "installmentCriteria":"MAX_WITHOUT_INTEREST",
+            "productOriginVtex":True,
+            "map":"c,c",
+            "query":category['query'],#
+            "orderBy":"OrderByScoreDESC",
+            "from":_from,#
+            "to":_to,#
+            "selectedFacets":
+                [{"key":"c","value":category['sup']},{"key":"c","value":category['sub']}], #
+                "facetsBehavior":"Static",
+                "categoryTreeBehavior":"default",
+                "withFacets":False,
+                "variant":""
+            }
+        variables_64 = base64.b64encode(json.dumps(variables).encode('utf-8')).decode()
+        querystring = {
+            "workspace":"master",
+            "maxAge":"short",
+            "appsEtag":"remove",
+            "domain":"store",
+            "locale":"es-AR",
+            "operationName":"productSearchV3",
+            "variables":"{}",
+            "extensions":"{\"persistedQuery\":{\"version\":1,\"sha256Hash\":\""+self.config['sha256']+"\",\"sender\":\"vtex.store-resources@0.x\",\"provider\":\"vtex.search-graphql@0.x\"},\"variables\":\""+variables_64+"\"}"
+            }
+        return querystring
 
     def process_product(self, product):
         """ extract the product information """
